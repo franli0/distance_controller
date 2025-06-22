@@ -80,8 +80,8 @@ private:
             {0.0, 1.0, 0.0},     // waypoint 4: move 1m left from waypoint 3 (back to start)
             {1.0, 1.0, 0.0},     // waypoint 5: move 1m forward + 1m left from start
             {-1.0, -1.0, 0.0},   // waypoint 6: move 1m backward + 1m right from waypoint 5 (back to start)
-            {1.0, -1.0, 0.0},    // waypoint 7: move 1m backward + 1m left from start
-            {-1.0, 1.0, 0.0},    // waypoint 8: move 1m forward + 1m right from waypoint 7 (back to start)
+            {1.0, -1.0, 0.0},    // waypoint 7: move 1m forward + 1m right from start
+            {-1.0, 1.0, 0.0},    // waypoint 8: move 1m backward + 1m left from waypoint 7 (back to start)
             {1.0, 0.0, 0.0},     // waypoint 9: move 1m forward from start
             {-1.0, 0.0, 0.0}     // waypoint 10: move 1m backward from waypoint 9 (back to start)
         };
