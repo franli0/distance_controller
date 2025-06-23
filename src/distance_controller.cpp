@@ -26,8 +26,10 @@ public:
         goal_reached_ = false;
         waypoint_reached_time_ = rclcpp::Time(0);
         first_odom_received_ = false;
+        waypoint_start_x_ = 0.0;
+        waypoint_start_y_ = 0.0;
         
-        // Publishers and subscribers - FOR MECANUM DRIVE CONTROLLER
+        // Publishers and subscribers
         cmd_vel_publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
         odom_subscriber_ = this->create_subscription<nav_msgs::msg::Odometry>(
             "/rosbot_xl_base_controller/odom", 10,
@@ -41,8 +43,13 @@ public:
         RCLCPP_INFO(this->get_logger(), "=== DISTANCE CONTROLLER INITIALIZED ===");
         RCLCPP_INFO(this->get_logger(), "PID Gains - Kp: %.2f, Ki: %.2f, Kd: %.2f", kp_, ki_, kd_);
         RCLCPP_INFO(this->get_logger(), "Scene: %d, Total waypoints: %zu", scene_number_, waypoints_.size());
-        RCLCPP_INFO(this->get_logger(), "Using MECANUM_DRIVE_CONTROLLER for holonomic movement");
-        RCLCPP_INFO(this->get_logger(), "Robot will move through waypoints without rotating");
+        
+        if (scene_number_ == 1) {
+            RCLCPP_INFO(this->get_logger(), "SIMULATION MODE: Using mecanum holonomic movement");
+        } else if (scene_number_ == 2) {
+            RCLCPP_INFO(this->get_logger(), "REAL ROBOT MODE: Using CyberWorld waypoints");
+            RCLCPP_INFO(this->get_logger(), "Movement pattern: WP1→WP2(forward)→WP3(right)→WP2(left)→WP1(back)");
+        }
     }
 
 private:
@@ -56,7 +63,7 @@ private:
     // Robot state
     double current_x_, current_y_, current_yaw_;
     double start_x_, start_y_;
-    double waypoint_start_x_, waypoint_start_y_; // Position when starting current waypoint
+    double waypoint_start_x_, waypoint_start_y_;
     bool goal_reached_;
     bool first_odom_received_;
     
@@ -73,20 +80,41 @@ private:
     
     void SelectWaypoints()
     {
-        waypoints_ = {
-            {0.0, 1.0, 0.0},     // waypoint 1: move 1m left from start
-            {0.0, -1.0, 0.0},    // waypoint 2: move 1m right from waypoint 1 (back to start)
-            {0.0, -1.0, 0.0},    // waypoint 3: move 1m right from start
-            {0.0, 1.0, 0.0},     // waypoint 4: move 1m left from waypoint 3 (back to start)
-            {1.0, 1.0, 0.0},     // waypoint 5: move 1m forward + 1m left from start
-            {-1.0, -1.0, 0.0},   // waypoint 6: move 1m backward + 1m right from waypoint 5 (back to start)
-            {1.0, -1.0, 0.0},    // waypoint 7: move 1m forward + 1m right from start
-            {-1.0, 1.0, 0.0},    // waypoint 8: move 1m backward + 1m left from waypoint 7 (back to start)
-            {1.0, 0.0, 0.0},     // waypoint 9: move 1m forward from start
-            {-1.0, 0.0, 0.0}     // waypoint 10: move 1m backward from waypoint 9 (back to start)
-        };
-        
-        RCLCPP_INFO(this->get_logger(), "Loaded %zu RELATIVE waypoints for scene %d", waypoints_.size(), scene_number_);
+        switch (scene_number_) {
+            case 1: // Simulation waypoints - 10 waypoints for comprehensive testing
+                waypoints_ = {
+                    {0.0, 1.0, 0.0},     // waypoint 1: move 1m left from start
+                    {0.0, -1.0, 0.0},    // waypoint 2: move 1m right from waypoint 1 (back to start)
+                    {0.0, -1.0, 0.0},    // waypoint 3: move 1m right from start
+                    {0.0, 1.0, 0.0},     // waypoint 4: move 1m left from waypoint 3 (back to start)
+                    {1.0, 1.0, 0.0},     // waypoint 5: move 1m forward + 1m left from start
+                    {-1.0, -1.0, 0.0},   // waypoint 6: move 1m backward + 1m right from waypoint 5 (back to start)
+                    {1.0, -1.0, 0.0},    // waypoint 7: move 1m forward + 1m right from start
+                    {-1.0, 1.0, 0.0},    // waypoint 8: move 1m backward + 1m left from waypoint 7 (back to start)
+                    {1.0, 0.0, 0.0},     // waypoint 9: move 1m forward from start
+                    {-1.0, 0.0, 0.0}     // waypoint 10: move 1m backward from waypoint 9 (back to start)
+                };
+                RCLCPP_INFO(this->get_logger(), "Loaded simulation waypoints");
+                break;
+                
+            case 2: // CyberWorld real robot waypoints - based on actual measurements
+                waypoints_ = {
+                    {-0.091, 0.893, 0.0},    // waypoint 1 -> waypoint 2: Move forward (measured: x=-0.091, y=+0.893)
+                    {0.637, 0.113, 0.0},     // waypoint 2 -> waypoint 3: Move sideways right (measured: x=+0.637, y=+0.113)
+                    {-0.637, -0.113, 0.0},   // waypoint 3 -> waypoint 2: Move sideways left (return: x=-0.637, y=-0.113)
+                    {0.091, -0.893, 0.0}     // waypoint 2 -> waypoint 1: Move backward (return: x=+0.091, y=-0.893)
+                };
+                RCLCPP_INFO(this->get_logger(), "Loaded real robot waypoints");
+                RCLCPP_INFO(this->get_logger(), "Waypoint 1-> Waypoint 2: forward (%.3f, %.3f)", waypoints_[0][0], waypoints_[0][1]);
+                RCLCPP_INFO(this->get_logger(), "Waypoint 2-> Waypoint 3: right (%.3f, %.3f)", waypoints_[1][0], waypoints_[1][1]);
+                RCLCPP_INFO(this->get_logger(), "Waypoint 3-> Waypoint 2: left (%.3f, %.3f)", waypoints_[2][0], waypoints_[2][1]);
+                RCLCPP_INFO(this->get_logger(), "Waypoint 2-> Waypoint 1: back (%.3f, %.3f)", waypoints_[3][0], waypoints_[3][1]);
+                break;
+                
+            default:
+                RCLCPP_ERROR(this->get_logger(), "Invalid Scene Number: %d", scene_number_);
+                waypoints_ = {{0.0, 0.0, 0.0}};
+        }
     }
     
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -113,8 +141,14 @@ private:
             waypoint_start_x_ = current_x_;
             waypoint_start_y_ = current_y_;
             first_odom_received_ = true;
+            
             RCLCPP_INFO(this->get_logger(), "Starting position set: (%.3f, %.3f)", start_x_, start_y_);
-            RCLCPP_INFO(this->get_logger(), "Beginning RELATIVE waypoint sequence...");
+            if (scene_number_ == 1) {
+                RCLCPP_INFO(this->get_logger(), "Beginning simulation waypoint sequence...");
+            } else {
+                RCLCPP_INFO(this->get_logger(), "Beginning real robot waypoint sequence...");
+                RCLCPP_INFO(this->get_logger(), "Ready to move from WP1 to WP2 (forward movement)");
+            }
         }
     }
     
@@ -129,13 +163,16 @@ private:
             stopRobot();
             if (!goal_reached_) {
                 goal_reached_ = true;
-                RCLCPP_INFO(this->get_logger(), "All waypoints completed!");
+                RCLCPP_INFO(this->get_logger(), "ALL WAYPOINTS COMPLETED!");
+                if (scene_number_ == 2) {
+                    RCLCPP_INFO(this->get_logger(), "Real robot successfully returned to starting position!");
+                }
                 RCLCPP_INFO(this->get_logger(), "Distance controller program terminating successfully.");
             }
             return;
         }
         
-        // Calculate target position - RELATIVE to waypoint start position
+        // Calculate target position - RELATIVE to current waypoint start position
         double target_x = waypoint_start_x_ + waypoints_[current_waypoint_index_][0];
         double target_y = waypoint_start_y_ + waypoints_[current_waypoint_index_][1];
         
@@ -143,25 +180,48 @@ private:
         double distance_error = calculateDistanceToTarget(target_x, target_y);
         
         // Check if current waypoint is reached
-        if (distance_error < 0.05) { // 5cm tolerance for precision
+        double tolerance = (scene_number_ == 2) ? 0.08 : 0.05; // Looser tolerance for real robot
+        
+        if (distance_error < tolerance) {
             auto current_time = this->get_clock()->now();
             
             if (waypoint_reached_time_.seconds() == 0) {
                 // Just reached waypoint
                 waypoint_reached_time_ = current_time;
+                
+                // Log waypoint completion with movement description
+                std::vector<std::string> movement_descriptions;
+                if (scene_number_ == 2) {
+                    movement_descriptions = {
+                        "Waypoint 1-> Waypoint 2 (FORWARD)",
+                        "Waypoint 2-> Waypoint 3 (SIDEWAYS RIGHT)", 
+                        "Waypoint 3-> Waypoint 2 (SIDEWAYS LEFT)",
+                        "Waypoint 2-> Waypoint 1 (BACKWARD)"
+                    };
+                } else {
+                    movement_descriptions = {
+                        "Forward", "Left", "Backward", "Right", "Diagonal FL",
+                        "Diagonal BL", "Diagonal BR", "Diagonal FR", "Combined", "Return"
+                    };
+                }
+                
                 RCLCPP_INFO(this->get_logger(), 
-                           "Waypoint %zu Reached! Distance: %.3f m", 
-                           current_waypoint_index_ + 1, distance_error);
+                           "Waypoint %zu reached! %s - Distance: %.3f m", 
+                           current_waypoint_index_ + 1, 
+                           (current_waypoint_index_ < movement_descriptions.size()) ? 
+                           movement_descriptions[current_waypoint_index_].c_str() : "Movement",
+                           distance_error);
                 stopRobot();
             }
             
             // Stay stopped for 2 seconds at each waypoint
-            if ((current_time - waypoint_reached_time_).seconds() >= 2.0) {
+            double stop_time = (scene_number_ == 2) ? 3.0 : 2.0; // Longer stop for real robot
+            if ((current_time - waypoint_reached_time_).seconds() >= stop_time) {
                 // Move to next waypoint
                 current_waypoint_index_++;
                 waypoint_reached_time_ = rclcpp::Time(0);
                 
-                // Set new waypoint start position (current position)
+                // Update waypoint start position to current position
                 waypoint_start_x_ = current_x_;
                 waypoint_start_y_ = current_y_;
                 
@@ -170,9 +230,26 @@ private:
                 integral_ = 0.0;
                 
                 if (current_waypoint_index_ < waypoints_.size()) {
+                    std::vector<std::string> next_movements;
+                    if (scene_number_ == 2) {
+                        next_movements = {
+                            "Waypoint 1 -> Waypoint 2 (FORWARD)",
+                            "Waypoint 2 -> Waypoint 3 (SIDEWAYS RIGHT)",
+                            "Waypoint 3 -> Waypoint 2 (SIDEWAYS LEFT)", 
+                            "Waypoint 2 -> Waypoint 1 (BACKWARD)"
+                        };
+                    } else {
+                        next_movements = {
+                            "Forward", "Left", "Backward", "Right", "Diagonal FL",
+                            "Diagonal BL", "Diagonal BR", "Diagonal FR", "Combined", "Return"
+                        };
+                    }
+                    
                     RCLCPP_INFO(this->get_logger(), 
-                               "Moving to waypoint %zu: relative(%.2f, %.2f) from current position", 
+                               "Starting WAYPOINT %zu: %s - relative(%.3f, %.3f)", 
                                current_waypoint_index_ + 1,
+                               (current_waypoint_index_ < next_movements.size()) ?
+                               next_movements[current_waypoint_index_].c_str() : "Next Movement",
                                waypoints_[current_waypoint_index_][0],
                                waypoints_[current_waypoint_index_][1]);
                 }
@@ -192,20 +269,24 @@ private:
             // Normalize direction vector
             direction_x /= distance;
             direction_y /= distance;
+
+            // *** CRITICAL FIX *** Transform global direction vector to robot coordinate frame
+            double robot_vx = direction_x * cos(current_yaw_) + direction_y * sin(current_yaw_);
+            double robot_vy = -direction_x * sin(current_yaw_) + direction_y * cos(current_yaw_);
             
             // Create Twist message for MECANUM DRIVE CONTROLLER
             geometry_msgs::msg::Twist cmd_vel;
             
             // HOLONOMIC MOVEMENT: Robot moves in any direction while staying oriented forward
-            cmd_vel.linear.x = control_signal * direction_x;  // Forward/backward movement
-            cmd_vel.linear.y = control_signal * direction_y;  // Left/right (sideways) movement
+            cmd_vel.linear.x = control_signal * robot_vx;  // Forward/backward in robot frame
+            cmd_vel.linear.y = control_signal * robot_vy;  // Left/right in robot frame
             cmd_vel.linear.z = 0.0;
             cmd_vel.angular.x = 0.0;
             cmd_vel.angular.y = 0.0;
-            cmd_vel.angular.z = 0.0;
+            cmd_vel.angular.z = 0.0;  // NO ROTATION - robot stays facing forward throughout
             
-            // Apply velocity limits for safety and good control
-            double max_velocity = 0.8; // m/s - allow high speed for fast movement
+            // Apply velocity limits - more conservative for real robot
+            double max_velocity = (scene_number_ == 2) ? 0.6 : 0.8; // Slower for real robot
             double current_speed = sqrt(cmd_vel.linear.x * cmd_vel.linear.x + 
                                       cmd_vel.linear.y * cmd_vel.linear.y);
             
@@ -215,14 +296,14 @@ private:
                 cmd_vel.linear.y *= scale_factor;
             }
             
-            // Publish velocity commands to mecanum drive controller
+            // Publish velocity commands
             cmd_vel_publisher_->publish(cmd_vel);
             
             // Debug output every second
             static int debug_counter = 0;
             if (debug_counter++ % 25 == 0) {
                 RCLCPP_INFO(this->get_logger(), 
-                           "Waypoint%zu: dist=%.3fm, ctrl=%.3f, vel=(%.3f,%.3f), pos=(%.3f,%.3f)->target(%.3f,%.3f)",
+                           "Waypoint %zu: dist=%.3fm, ctrl=%.3f, vel=(%.3f,%.3f), pos=(%.3f,%.3f)->target(%.3f,%.3f)",
                            current_waypoint_index_ + 1, distance_error, control_signal,
                            cmd_vel.linear.x, cmd_vel.linear.y,
                            current_x_, current_y_, target_x, target_y);
@@ -291,7 +372,15 @@ int main(int argc, char **argv)
         scene_number = std::atoi(argv[1]);
     }
     
-    RCLCPP_INFO(rclcpp::get_logger("main"), "Starting Distance Controller for Scene %d", scene_number);
+    if (scene_number == 1) {
+        RCLCPP_INFO(rclcpp::get_logger("main"), "Starting Distance Controller - Simulation");
+    } else if (scene_number == 2) {
+        RCLCPP_INFO(rclcpp::get_logger("main"), "Starting Distance Controller - Real Robot");
+        RCLCPP_INFO(rclcpp::get_logger("main"), "Using CyberWorld waypoints from odometry measurements");
+    } else {
+        RCLCPP_ERROR(rclcpp::get_logger("main"), "Invalid scene number: %d (use 1 or 2)", scene_number);
+        return 1;
+    }
     
     auto node = std::make_shared<DistanceController>(scene_number);
     rclcpp::executors::MultiThreadedExecutor executor;
